@@ -19,7 +19,7 @@ Usage(VOID)
             L"  rmsetup /Mount-Image /ImageFile:<iso> /MountDir:<dir>\n"
             L"  rmsetup /Get-Drivers /MountDir:<dir> [/All]\n"
             L"  rmsetup /Add-Driver /MountDir:<dir> /Driver:<inf or folder> [/Recurse] [/Prompt]\n"
-            L"          [/Device:<hardware id>]... [/Instance:<instance path>]... [/BootStart]\n"
+            L"          [/Device:<hardware id>]... [/Instance:<instance path>]... [/BootStart] [/DriverKey:<n>]\n"
             L"  rmsetup /Add-Package /MountDir:<dir> /PackagePath:<package>\n"
             L"  rmsetup /Add-Firmware /MountDir:<dir> /Source:<file or folder> [/Destination:<system root folder>]\n"
             L"  rmsetup /Add-Overlay /MountDir:<dir> /Source:<folder>\n"
@@ -318,6 +318,8 @@ wmain(
             Devices[Options.DeviceCount++] = Value;
         else if ((Value = Option(Arg, L"Instance")) != NULL && Options.InstanceCount < MAX_LIST)
             Instances[Options.InstanceCount++] = Value;
+        else if ((Value = Option(Arg, L"DriverKey")) != NULL)
+            Options.DriverKey = wcstoul(Value, NULL, 0);
         else if (Switch(Arg, L"Recurse"))
             Recurse = TRUE;
         else if (Switch(Arg, L"Prompt"))

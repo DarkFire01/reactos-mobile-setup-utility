@@ -744,6 +744,61 @@ WriteServices(
     return Service[0] != UNICODE_NULL;
 }
 
+/*
+ * The device id an INF id stands for. ACPI\VEN_QCOM&DEV_0237&SUBSYS_... is what
+ * many INFs list for the device the ACPI bus reports as ACPI\QCOM0237, and an id
+ * with a subsystem also stands for the plain one.
+ */
+static
+VOID
+CanonicalId(
+    _In_z_ PCWSTR Id,
+    _Out_writes_z_(Size) PWSTR Out,
+    _In_ SIZE_T Size)
+{
+    PWCHAR Amp;
+
+    if (!_wcsnicmp(Id, L"ACPI\\VEN_", 9) && wcslen(Id) >= 9 + 4 + 5 + 4 && !_wcsnicmp(Id + 13, L"&DEV_", 5))
+        swprintf_s(Out, Size, L"ACPI\\%.4s%.4s", Id + 9, Id + 18);
+    else
+        wcscpy_s(Out, Size, Id);
+
+    Amp = wcschr(Out, L'&');
+    if (Amp && !_wcsnicmp(Amp, L"&SUBSYS_", 8))
+        *Amp = UNICODE_NULL;
+}
+
+static
+BOOL
+IdMatches(
+    _In_z_ PCWSTR InfId,
+    _In_z_ PCWSTR DeviceId)
+{
+    WCHAR Left[INF_FIELD_MAX], Right[INF_FIELD_MAX];
+
+    CanonicalId(InfId, Left, ARRAYSIZE(Left));
+    CanonicalId(DeviceId, Right, ARRAYSIZE(Right));
+    return !_wcsicmp(Left, Right);
+}
+
+/* The device the user named that an INF id stands for, NULL when it serves none */
+static
+PCWSTR
+WantedDevice(
+    _In_z_ PCWSTR Id,
+    _In_reads_(DeviceCount) PCWSTR *Devices,
+    _In_ ULONG DeviceCount)
+{
+    ULONG Index;
+
+    for (Index = 0; Index < DeviceCount; Index++)
+    {
+        if (IdMatches(Id, Devices[Index]))
+            return Devices[Index];
+    }
+    return NULL;
+}
+
 /* A hardware id the user asked for, or any id when none was named */
 static
 BOOL
@@ -752,23 +807,7 @@ DeviceWanted(
     _In_reads_(DeviceCount) PCWSTR *Devices,
     _In_ ULONG DeviceCount)
 {
-    ULONG Index;
-
-    if (!DeviceCount)
-        return TRUE;
-
-    for (Index = 0; Index < DeviceCount; Index++)
-    {
-        SIZE_T Length = wcslen(Devices[Index]);
-
-        /* An id also matches its subsystem qualified forms */
-        if (!_wcsicmp(Id, Devices[Index]) ||
-            (!_wcsnicmp(Id, Devices[Index], Length) && Id[Length] == L'&'))
-        {
-            return TRUE;
-        }
-    }
-    return FALSE;
+    return !DeviceCount || WantedDevice(Id, Devices, DeviceCount) != NULL;
 }
 
 /* The models sections the manufacturer section names, decorated for ARM64 where it says so */
@@ -950,7 +989,9 @@ RmsTranslateDriver(
                     }
                 }
 
-                swprintf_s(DriverKey, ARRAYSIZE(DriverKey), L"%s\\%04lX", ClassGuid, (*NextDriverKey)++);
+                /* A pinned key keeps values other INFs set on it in place */
+                swprintf_s(DriverKey, ARRAYSIZE(DriverKey), L"%s\\%04lX", ClassGuid,
+                           Options->DriverKey ? Options->DriverKey : (*NextDriverKey)++);
                 swprintf_s(Key, ARRAYSIZE(Key), REG_CLASS L"%s", DriverKey);
                 RegString(&Out, Key, L"DriverDesc", Display);
                 RegString(&Out, Key, L"InfPath", InfName);
@@ -982,11 +1023,15 @@ RmsTranslateDriver(
             {
                 WCHAR Cddb[INF_FIELD_MAX], Params[INF_FIELD_MAX], *Char;
 
+                PCWSTR Reported;
+
                 InfUnquote(Fields->Field[Id]);
                 if (!Fields->Field[Id][0] || !DeviceWanted(Fields->Field[Id], Devices, DeviceCount))
                     continue;
 
-                swprintf_s(Cddb, ARRAYSIZE(Cddb), REG_CDDB L"%s", Fields->Field[Id]);
+                /* Keyed by the id the bus reports, the one named, rather than the INF's form of it */
+                Reported = DeviceCount ? WantedDevice(Fields->Field[Id], Devices, DeviceCount) : Fields->Field[Id];
+                swprintf_s(Cddb, ARRAYSIZE(Cddb), REG_CDDB L"%s", Reported);
                 for (Char = Cddb + wcslen(REG_CDDB); *Char; Char++)
                 {
                     if (*Char == L'\\')
@@ -1011,7 +1056,7 @@ RmsTranslateDriver(
 
                 for (Id = 1; Id < Fields->Count; Id++)
                 {
-                    if (!_wcsicmp(DeviceId, Fields->Field[Id]))
+                    if (IdMatches(Fields->Field[Id], DeviceId))
                         break;
                 }
                 if (Id == Fields->Count)
@@ -1043,6 +1088,22 @@ RmsTranslateDriver(
         Dot = wcsrchr(RegName, L'.');
         if (Dot)
             *Dot = UNICODE_NULL;
+
+        /* One INF installed for several devices gets one registry INF per device */
+        if (DeviceCount)
+        {
+            PCWSTR Tail = wcsrchr(Devices[0], L'\\');
+            WCHAR Suffix[64];
+            PWCHAR Char;
+
+            swprintf_s(Suffix, ARRAYSIZE(Suffix), L"_%s", Tail ? Tail + 1 : Devices[0]);
+            for (Char = Suffix; *Char; Char++)
+            {
+                if (!iswalnum(*Char) && *Char != L'_')
+                    *Char = L'_';
+            }
+            wcscat_s(RegName, ARRAYSIZE(RegName), Suffix);
+        }
         wcscat_s(RegName, ARRAYSIZE(RegName), L"_driver_reg.inf");
         Ok = RmsRegisterInf(MountDir, RegName, NULL, Out.Buffer) && Ok;
     }

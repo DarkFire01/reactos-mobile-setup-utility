@@ -53,6 +53,9 @@ typedef struct _RMS_DRIVER_OPTIONS
     /* Start the device's service at boot whatever the INF says */
     BOOL BootStart;
 
+    /* The driver key under the class to use, 0 for the next free one */
+    ULONG DriverKey;
+
     /* Only describe what would be installed, into Summary */
     BOOL DryRun;
     PRMS_TEXT Summary;
