@@ -560,6 +560,63 @@ ParseNumber(
 /* The files CopyFiles names, staged into the folder their DestinationDirs give */
 static
 BOOL
+/* A section with its .arm64 platform form first, as SourceDisksFiles and SourceDisksNames come */
+static
+PINF_SECTION
+InfPlatformSection(
+    _In_ PINF_FILE Inf,
+    _In_z_ PCWSTR Base)
+{
+    WCHAR Name[128];
+    PINF_SECTION Section;
+
+    swprintf_s(Name, ARRAYSIZE(Name), L"%s.arm64", Base);
+    Section = InfSection(Inf, Name);
+    return Section ? Section : InfSection(Inf, Base);
+}
+
+/* Where a file the INF copies sits: SourceDisksFiles gives its disk and folder, SourceDisksNames the disk's */
+static
+VOID
+SourcePath(
+    _In_ PINF_FILE Inf,
+    _In_z_ PCWSTR InfDir,
+    _In_z_ PCWSTR FileName,
+    _Out_writes_z_(Size) PWSTR Out,
+    _In_ SIZE_T Size)
+{
+    INF_FIELDS *Fields = malloc(sizeof(*Fields));
+    WCHAR Entry[INF_FIELD_MAX], Disk[INF_FIELD_MAX], DiskPath[INF_FIELD_MAX] = L"", SubDir[INF_FIELD_MAX] = L"";
+
+    InfLookupValue(Inf, InfPlatformSection(Inf, L"SourceDisksFiles"), FileName, Entry, ARRAYSIZE(Entry));
+    if (Entry[0] && Fields)
+    {
+        InfSplit(Entry, Fields);
+        wcscpy_s(Disk, ARRAYSIZE(Disk), Fields->Field[0]);
+        if (Fields->Count > 1)
+        {
+            InfUnquote(Fields->Field[1]);
+            wcscpy_s(SubDir, ARRAYSIZE(SubDir), Fields->Field[1]);
+        }
+
+        InfLookupValue(Inf, InfPlatformSection(Inf, L"SourceDisksNames"), Disk, Entry, ARRAYSIZE(Entry));
+        if (Entry[0])
+        {
+            InfSplit(Entry, Fields);
+            if (Fields->Count > 3)
+            {
+                InfUnquote(Fields->Field[3]);
+                wcscpy_s(DiskPath, ARRAYSIZE(DiskPath), Fields->Field[3]);
+            }
+        }
+    }
+    free(Fields);
+
+    swprintf_s(Out, Size, L"%s%s%s%s%s\\%s", InfDir,
+               (DiskPath[0] && DiskPath[0] != L'\\') ? L"\\" : L"", DiskPath,
+               (SubDir[0] && SubDir[0] != L'\\') ? L"\\" : L"", SubDir, FileName);
+}
+
 StageFiles(
     _In_z_ PCWSTR MountDir,
     _In_ PINF_FILE Inf,
@@ -595,24 +652,39 @@ StageFiles(
 
         for (Line = 0; Line < Files; Line++)
         {
-            PCWSTR Relative;
-            PWSTR Source;
+            WCHAR Source[MAX_PATH * 2];
+            PCWSTR Relative, Target, SourceName;
             ULONG DirId;
 
             if (Section)
             {
-                InfSplit(Section->Lines[Line], Fields);
+                WCHAR LineKey[INF_FIELD_MAX], LineValue[INF_FIELD_MAX];
+
+                /* Setup reads a file line's fields after its key, so "x = a.sys" copies a.sys */
+                if (InfKeyValue(Section->Lines[Line], LineKey, ARRAYSIZE(LineKey), LineValue, ARRAYSIZE(LineValue)))
+                    InfSplit(LineValue, Fields);
+                else
+                    InfSplit(Section->Lines[Line], Fields);
+            /* A copy line is the name it gets, then the name it has in the package when they differ */
                 InfUnquote(Fields->Field[0]);
             }
             else
             {
+                if (Fields->Count > 1)
+                    InfUnquote(Fields->Field[1]);
                 wcscpy_s(Fields->Field[0], INF_FIELD_MAX, Names[Index] + 1);
             }
 
             DirId = ParseNumber(Dir, 12);
+                Fields->Count = 1;
             Relative = (DirId == 11) ? L"system32" : (DirId == 10) ? L"" : L"system32\\drivers";
 
-            Source = RmsJoin(InfDir, Fields->Field[0]);
+            Target = Fields->Field[0];
+            SourceName = (Fields->Count > 1 && Fields->Field[1][0]) ? Fields->Field[1] : Target;
+            if (!Target[0])
+                continue;
+
+            SourcePath(Inf, InfDir, SourceName, Source, ARRAYSIZE(Source));
             if (DryRun)
             {
                 if (!RmsFileExists(Source))
@@ -623,10 +695,9 @@ StageFiles(
             }
             else
             {
-                Ok = RmsStageSystemFile(MountDir, Source, Relative) && Ok;
+                Ok = RmsStageSystemFile(MountDir, Source, Relative, Target) && Ok;
             }
-            RmsTextAppendF(Comment, L" %s", Fields->Field[0]);
-            free(Source);
+            RmsTextAppendF(Comment, L" %s", Target);
         }
     }
 

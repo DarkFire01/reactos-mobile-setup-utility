@@ -131,5 +131,5 @@ int RmsGetDrivers(_In_z_ PCWSTR MountDir);
 int RmsListServices(_In_z_ PCWSTR MountDir, _In_ RMS_SERVICE_ROUTINE Routine, _In_opt_ PVOID Context);
 int RmsCommitImage(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR ImageFile);
 BOOL RmsIsMounted(_In_z_ PCWSTR MountDir);
-BOOL RmsStageSystemFile(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Source, _In_z_ PCWSTR RelativeDir);
+BOOL RmsStageSystemFile(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Source, _In_z_ PCWSTR RelativeDir, _In_opt_z_ PCWSTR TargetName);
 BOOL RmsRegisterInf(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Name, _In_opt_z_ PCWSTR SourcePath, _In_opt_z_ PCWSTR Text);

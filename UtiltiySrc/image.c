@@ -125,7 +125,8 @@ BOOL
 RmsStageSystemFile(
     _In_z_ PCWSTR MountDir,
     _In_z_ PCWSTR Source,
-    _In_z_ PCWSTR RelativeDir)
+    _In_z_ PCWSTR RelativeDir,
+    _In_opt_z_ PCWSTR TargetName)
 {
     WCHAR Arch[64], Target[MAX_PATH * 2];
     PCWSTR Roots[2] = { L"reactos", NULL };
@@ -133,7 +134,7 @@ RmsStageSystemFile(
     ULONG Index;
     BOOL Ok = TRUE;
 
-    Name = Name ? Name + 1 : Source;
+    Name = (TargetName && TargetName[0]) ? TargetName : (Name ? Name + 1 : Source);
     ImageGet(MountDir, L"Arch", Arch, ARRAYSIZE(Arch));
     if (Arch[0])
         Roots[1] = Arch;
@@ -475,7 +476,7 @@ RmsAddFirmware(
 
     if (RmsFileExists(Source))
     {
-        Ok = RmsStageSystemFile(MountDir, Source, Relative);
+        Ok = RmsStageSystemFile(MountDir, Source, Relative, NULL);
     }
     else if (RmsDirectoryExists(Source))
     {
