@@ -24,6 +24,7 @@
 #define RMS_REGISTRY_DIR    L"rmsetup\\registry"
 #define RMS_ORDER_FILE      L"rmsetup\\registry\\ORDER"
 #define RMS_IMAGE_INI       L"rmsetup\\image.ini"
+#define RMS_DEVICES_INI     L"rmsetup\\devices.ini"
 
 /* Driver keys the utility hands out start here, clear of the ones the packages set */
 #define RMS_FIRST_DRIVER_KEY    0x200
@@ -117,6 +118,7 @@ BOOL RmsEnumServices(_In_z_ PCWSTR HivePath, _In_opt_z_ PCWSTR MountDir,
 /* driver.c */
 BOOL RmsTranslateDriver(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR InfPath,
                         _In_ const RMS_DRIVER_OPTIONS *Options, _Inout_ PULONG NextDriverKey);
+BOOL RmsIsExtensionInf(_In_z_ PCWSTR InfPath);
 
 /* image.c */
 int RmsMountImage(_In_z_ PCWSTR ImageFile, _In_z_ PCWSTR MountDir);
@@ -132,4 +134,6 @@ int RmsListServices(_In_z_ PCWSTR MountDir, _In_ RMS_SERVICE_ROUTINE Routine, _I
 int RmsCommitImage(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR ImageFile);
 BOOL RmsIsMounted(_In_z_ PCWSTR MountDir);
 BOOL RmsStageSystemFile(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Source, _In_z_ PCWSTR RelativeDir, _In_opt_z_ PCWSTR TargetName);
+BOOL RmsSetDeviceKey(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR DeviceId, _In_z_ PCWSTR DriverKey);
+PWSTR RmsGetDeviceKeys(_In_z_ PCWSTR MountDir);
 BOOL RmsRegisterInf(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Name, _In_opt_z_ PCWSTR SourcePath, _In_opt_z_ PCWSTR Text);

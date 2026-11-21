@@ -24,6 +24,9 @@
 #define REG_CDDB            L"SYSTEM\\CurrentControlSet\\Control\\CriticalDeviceDatabase\\"
 #define REG_ENUM            L"SYSTEM\\CurrentControlSet\\Enum\\"
 
+/* Class of extension INFs */
+#define RMS_EXTENSION_CLASS L"{E2F84CE7-8EFA-411C-AA69-97454CA4CB57}"
+
 /* Install sections are looked up with these decorations, most specific first */
 static PCWSTR InfDecorations[] = { L".ntarm64", L".nt", L"" };
 
@@ -557,9 +560,6 @@ ParseNumber(
     return (End == Text) ? Default : Value;
 }
 
-/* The files CopyFiles names, staged into the folder their DestinationDirs give */
-static
-BOOL
 /* A section with its .arm64 platform form first, as SourceDisksFiles and SourceDisksNames come */
 static
 PINF_SECTION
@@ -617,6 +617,9 @@ SourcePath(
                (SubDir[0] && SubDir[0] != L'\\') ? L"\\" : L"", SubDir, FileName);
 }
 
+/* The files CopyFiles names, staged into the folder their DestinationDirs give */
+static
+BOOL
 StageFiles(
     _In_z_ PCWSTR MountDir,
     _In_ PINF_FILE Inf,
@@ -656,6 +659,7 @@ StageFiles(
             PCWSTR Relative, Target, SourceName;
             ULONG DirId;
 
+            /* A copy line is the name it gets, then the name it has in the package when they differ */
             if (Section)
             {
                 WCHAR LineKey[INF_FIELD_MAX], LineValue[INF_FIELD_MAX];
@@ -665,24 +669,23 @@ StageFiles(
                     InfSplit(LineValue, Fields);
                 else
                     InfSplit(Section->Lines[Line], Fields);
-            /* A copy line is the name it gets, then the name it has in the package when they differ */
                 InfUnquote(Fields->Field[0]);
+                if (Fields->Count > 1)
+                    InfUnquote(Fields->Field[1]);
             }
             else
             {
-                if (Fields->Count > 1)
-                    InfUnquote(Fields->Field[1]);
                 wcscpy_s(Fields->Field[0], INF_FIELD_MAX, Names[Index] + 1);
-            }
-
-            DirId = ParseNumber(Dir, 12);
                 Fields->Count = 1;
-            Relative = (DirId == 11) ? L"system32" : (DirId == 10) ? L"" : L"system32\\drivers";
+            }
 
             Target = Fields->Field[0];
             SourceName = (Fields->Count > 1 && Fields->Field[1][0]) ? Fields->Field[1] : Target;
             if (!Target[0])
                 continue;
+
+            DirId = ParseNumber(Dir, 12);
+            Relative = (DirId == 11) ? L"system32" : (DirId == 10) ? L"" : L"system32\\drivers";
 
             SourcePath(Inf, InfDir, SourceName, Source, ARRAYSIZE(Source));
             if (DryRun)
@@ -922,6 +925,171 @@ ModelSections(
     return Count;
 }
 
+#define ID_PARTS_MAX    8
+
+typedef struct _ID_PARTS
+{
+    WCHAR Bus[32];
+    WCHAR Name[ID_PARTS_MAX][16];
+    WCHAR Value[ID_PARTS_MAX][64];
+    ULONG Count;
+} ID_PARTS, *PID_PARTS;
+
+/* Splits BUS\VEN_X&DEV_Y&... into named parts, ACPI\QCOM0C36 reads as VEN_QCOM&DEV_0C36 */
+static
+BOOL
+IdSplit(
+    _In_z_ PCWSTR DeviceId,
+    _Out_ PID_PARTS Parts)
+{
+    PCWSTR Slash = wcschr(DeviceId, L'\\'), Part, End;
+
+    ZeroMemory(Parts, sizeof(*Parts));
+    if (!Slash || Slash - DeviceId >= ARRAYSIZE(Parts->Bus))
+        return FALSE;
+    wcsncpy_s(Parts->Bus, ARRAYSIZE(Parts->Bus), DeviceId, Slash - DeviceId);
+
+    Part = Slash + 1;
+    if (wcslen(Part) == 8 && !wcschr(Part, L'_') && !wcschr(Part, L'&'))
+    {
+        wcscpy_s(Parts->Name[0], ARRAYSIZE(Parts->Name[0]), L"VEN");
+        wcsncpy_s(Parts->Value[0], ARRAYSIZE(Parts->Value[0]), Part, 4);
+        wcscpy_s(Parts->Name[1], ARRAYSIZE(Parts->Name[1]), L"DEV");
+        wcscpy_s(Parts->Value[1], ARRAYSIZE(Parts->Value[1]), Part + 4);
+        Parts->Count = 2;
+        return TRUE;
+    }
+
+    while (*Part && Parts->Count < ID_PARTS_MAX)
+    {
+        PCWSTR Under;
+
+        End = wcschr(Part, L'&');
+        if (!End)
+            End = Part + wcslen(Part);
+        Under = wcschr(Part, L'_');
+        if (!Under || Under > End || Under - Part >= ARRAYSIZE(Parts->Name[0]) ||
+            End - Under - 1 >= ARRAYSIZE(Parts->Value[0]))
+        {
+            return FALSE;
+        }
+
+        wcsncpy_s(Parts->Name[Parts->Count], ARRAYSIZE(Parts->Name[0]), Part, Under - Part);
+        wcsncpy_s(Parts->Value[Parts->Count], ARRAYSIZE(Parts->Value[0]), Under + 1, End - Under - 1);
+        Parts->Count++;
+        Part = *End ? End + 1 : End;
+    }
+    return TRUE;
+}
+
+static
+PCWSTR
+IdPart(
+    _In_ const ID_PARTS *Parts,
+    _In_z_ PCWSTR Name)
+{
+    ULONG Index;
+
+    for (Index = 0; Index < Parts->Count; Index++)
+    {
+        if (!_wcsicmp(Parts->Name[Index], Name))
+            return Parts->Value[Index];
+    }
+    return NULL;
+}
+
+/* Whether two ids can name the same device: same bus, vendor and device, no part that disagrees */
+static
+BOOL
+IdSameDevice(
+    _In_z_ PCWSTR First,
+    _In_z_ PCWSTR Second)
+{
+    ID_PARTS A, B;
+    ULONG Index;
+
+    if (!_wcsicmp(First, Second))
+        return TRUE;
+    if (!IdSplit(First, &A) || !IdSplit(Second, &B) || _wcsicmp(A.Bus, B.Bus))
+        return FALSE;
+    if (!IdPart(&A, L"VEN") || !IdPart(&A, L"DEV") || !IdPart(&B, L"VEN") || !IdPart(&B, L"DEV"))
+        return FALSE;
+
+    for (Index = 0; Index < A.Count; Index++)
+    {
+        PCWSTR Other = IdPart(&B, A.Name[Index]);
+
+        if (Other && _wcsicmp(Other, A.Value[Index]))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+/* The driver keys of the installed devices an extension id applies to */
+static
+ULONG
+BaseDeviceKeys(
+    _In_z_ PCWSTR MountDir,
+    _In_z_ PCWSTR DeviceId,
+    _Out_writes_(MaxKeys) WCHAR Keys[][64],
+    _In_ ULONG MaxKeys)
+{
+    PWSTR List = RmsGetDeviceKeys(MountDir);
+    PWSTR Entry;
+    ULONG Count = 0, Index;
+
+    if (!List)
+        return 0;
+
+    for (Entry = List; *Entry && Count < MaxKeys; Entry += wcslen(Entry) + 1)
+    {
+        PWCHAR Equals = wcschr(Entry, L'=');
+
+        if (!Equals)
+            continue;
+        *Equals = UNICODE_NULL;
+        if (IdSameDevice(DeviceId, Entry))
+        {
+            for (Index = 0; Index < Count; Index++)
+            {
+                if (!_wcsicmp(Keys[Index], Equals + 1))
+                    break;
+            }
+            if (Index == Count)
+                wcscpy_s(Keys[Count++], 64, Equals + 1);
+        }
+        *Equals = L'=';
+    }
+
+    free(List);
+    return Count;
+}
+
+/**
+ * @brief Tells whether an INF is a driver extension INF.
+ */
+BOOL
+RmsIsExtensionInf(
+    _In_z_ PCWSTR InfPath)
+{
+    PINF_FILE Inf = malloc(sizeof(*Inf));
+    WCHAR ClassGuid[128] = L"";
+    BOOL IsExtension = FALSE;
+
+    if (!Inf)
+        return FALSE;
+
+    if (InfLoad(InfPath, Inf))
+    {
+        InfLookupValue(Inf, InfSection(Inf, L"Version"), L"ClassGUID", ClassGuid, ARRAYSIZE(ClassGuid));
+        IsExtension = !_wcsicmp(ClassGuid, RMS_EXTENSION_CLASS);
+        InfFree(Inf);
+    }
+
+    free(Inf);
+    return IsExtension;
+}
+
 /**
  * @brief Installs one Windows driver INF into the mounted image.
  *
@@ -949,7 +1117,7 @@ RmsTranslateDriver(
     WCHAR Service[INF_FIELD_MAX], Display[INF_FIELD_MAX], DriverKey[64];
     ULONG ModelCount, Model, Line, Id, Instance, Installed = 0;
     PWCHAR Slash;
-    BOOL Ok = TRUE;
+    BOOL Ok = TRUE, IsExtension;
 
     if (!Inf || !Fields || !InfLoad(InfPath, Inf))
     {
@@ -973,6 +1141,9 @@ RmsTranslateDriver(
     InfLookupValue(Inf, Version, L"Class", ClassName, ARRAYSIZE(ClassName));
     InfLookupValue(Inf, Version, L"Provider", Provider, ARRAYSIZE(Provider));
     InfLookupValue(Inf, Version, L"DriverVer", DriverVer, ARRAYSIZE(DriverVer));
+
+    /* An extension INF adds to a device another INF installs, it brings no driver of its own */
+    IsExtension = !_wcsicmp(ClassGuid, RMS_EXTENSION_CLASS);
 
     RmsTextAppendF(&Out, L"; Installed by rmsetup from %s, do not edit\r\n\r\n[AddReg]\r\n", InfName);
 
@@ -1024,13 +1195,16 @@ RmsTranslateDriver(
                 RmsTextFree(&Comment);
                 Ok = StageFiles(MountDir, Inf, Install, InfDir, Options->DryRun, &Comment) && Ok;
 
+                /*
+                 * A section without a function driver still installs: extensions add to the device
+                 * another INF drives, software components bring services and settings of their own.
+                 */
                 Services = InfDecorated(Inf, InstallName, L".Services");
                 if (!WriteServices(Inf, Services, &Out, Service, ARRAYSIZE(Service), Display, ARRAYSIZE(Display),
                                    Options->BootStart))
                 {
-                    RmsError(L"%s: %s installs no function driver", InfName, InstallName);
-                    Ok = FALSE;
-                    continue;
+                    Service[0] = UNICODE_NULL;
+                    wcscpy_s(Display, ARRAYSIZE(Display), Description);
                 }
 
                 /* KMDF drivers name their framework version */
@@ -1060,25 +1234,35 @@ RmsTranslateDriver(
                     }
                 }
 
-                /* A pinned key keeps values other INFs set on it in place */
-                swprintf_s(DriverKey, ARRAYSIZE(DriverKey), L"%s\\%04lX", ClassGuid,
-                           Options->DriverKey ? Options->DriverKey : (*NextDriverKey)++);
-                swprintf_s(Key, ARRAYSIZE(Key), REG_CLASS L"%s", DriverKey);
-                RegString(&Out, Key, L"DriverDesc", Display);
-                RegString(&Out, Key, L"InfPath", InfName);
-                RegString(&Out, Key, L"InfSection", InstallName);
-                if (Provider[0])
-                    RegString(&Out, Key, L"ProviderName", Provider);
-                if (DriverVer[0])
+                /* An extension writes into the driver key of the device it extends, see below */
+                DriverKey[0] = UNICODE_NULL;
+                if (!IsExtension)
                 {
-                    PWCHAR Comma = wcschr(DriverVer, L',');
+                    /* A pinned key keeps values other INFs set on it in place */
+                    swprintf_s(DriverKey, ARRAYSIZE(DriverKey), L"%s\\%04lX", ClassGuid,
+                               Options->DriverKey ? Options->DriverKey : (*NextDriverKey)++);
+                    swprintf_s(Key, ARRAYSIZE(Key), REG_CLASS L"%s", DriverKey);
+                    RegString(&Out, Key, L"DriverDesc", Display);
+                    RegString(&Out, Key, L"InfPath", InfName);
+                    RegString(&Out, Key, L"InfSection", InstallName);
+                    if (Provider[0])
+                        RegString(&Out, Key, L"ProviderName", Provider);
+                    if (DriverVer[0])
+                    {
+                        PWCHAR Comma = wcschr(DriverVer, L',');
 
-                    RegString(&Out, Key, L"DriverVersion", Comma ? InfTrim(Comma + 1) : DriverVer);
+                        RegString(&Out, Key, L"DriverVersion", Comma ? InfTrim(Comma + 1) : DriverVer);
+                    }
+                    RegString(&Out, Key, L"MatchingDeviceId", FirstId);
+                    RegAddSections(Inf, Install, Key, NULL, &Out);
                 }
-                RegString(&Out, Key, L"MatchingDeviceId", FirstId);
-                RegAddSections(Inf, Install, Key, NULL, &Out);
 
-                RmsTextAppendF(&Comment, L" -> %s%s", Service, Options->BootStart ? L" (boot start)" : L"");
+                if (IsExtension)
+                    RmsTextAppend(&Comment, L" -> extension");
+                else if (Service[0])
+                    RmsTextAppendF(&Comment, L" -> %s%s", Service, Options->BootStart ? L" (boot start)" : L"");
+                else
+                    RmsTextAppend(&Comment, L" -> no function driver");
                 if (Options->Summary)
                     RmsTextAppendF(Options->Summary, L"%s: %s%s\r\n", InstallName, Description, Comment.Buffer ? Comment.Buffer : L"");
                 if (!Options->DryRun)
@@ -1108,10 +1292,39 @@ RmsTranslateDriver(
                     if (*Char == L'\\')
                         *Char = L'#';
                 }
-                RegString(&Out, Cddb, L"Service", Service);
-                RegString(&Out, Cddb, L"ClassGUID", ClassGuid);
+                if (!IsExtension && Service[0])
+                {
+                    RegString(&Out, Cddb, L"Service", Service);
+                    RegString(&Out, Cddb, L"ClassGUID", ClassGuid);
+                }
                 swprintf_s(Params, ARRAYSIZE(Params), L"%s\\Device Parameters", Cddb);
                 RegAddSections(Inf, Hw, Params, Cddb, &Out);
+
+                if (Options->DryRun)
+                    continue;
+
+                if (!IsExtension)
+                {
+                    RmsSetDeviceKey(MountDir, Reported, DriverKey);
+                }
+                else
+                {
+                    WCHAR BaseKeys[16][64];
+                    ULONG BaseCount, Base;
+
+                    /* The extension's settings land in the driver keys of the devices it extends */
+                    BaseCount = BaseDeviceKeys(MountDir, Reported, BaseKeys, ARRAYSIZE(BaseKeys));
+                    for (Base = 0; Base < BaseCount; Base++)
+                    {
+                        swprintf_s(Key, ARRAYSIZE(Key), REG_CLASS L"%s", BaseKeys[Base]);
+                        RegAddSections(Inf, Install, Key, NULL, &Out);
+                    }
+                    if (!BaseCount)
+                    {
+                        RmsInfo(L"  %s: no installed driver for %s yet, its driver settings are skipped",
+                                InfName, Reported);
+                    }
+                }
             }
 
             /* Instances named on the command line get their Enum keys now */
@@ -1134,11 +1347,15 @@ RmsTranslateDriver(
                     continue;
 
                 swprintf_s(Enum, ARRAYSIZE(Enum), REG_ENUM L"%s", Instances[Instance]);
-                RegString(&Out, Enum, L"DeviceDesc", Description);
-                RegString(&Out, Enum, L"Service", Service);
-                RegString(&Out, Enum, L"ClassGUID", ClassGuid);
-                RegString(&Out, Enum, L"Class", ClassName);
-                RegString(&Out, Enum, L"Driver", DriverKey);
+                if (!IsExtension)
+                {
+                    RegString(&Out, Enum, L"DeviceDesc", Description);
+                    if (Service[0])
+                        RegString(&Out, Enum, L"Service", Service);
+                    RegString(&Out, Enum, L"ClassGUID", ClassGuid);
+                    RegString(&Out, Enum, L"Class", ClassName);
+                    RegString(&Out, Enum, L"Driver", DriverKey);
+                }
                 swprintf_s(Params, ARRAYSIZE(Params), L"%s\\Device Parameters", Enum);
                 RegAddSections(Inf, Hw, Params, Enum, &Out);
             }

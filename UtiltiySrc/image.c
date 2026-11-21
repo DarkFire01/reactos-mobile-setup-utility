@@ -335,6 +335,7 @@ typedef struct _ADD_FOLDER
     PVOID PromptContext;
     BOOL InstallAll;
     BOOL Cancelled;
+    BOOL Extensions;
     ULONG Added;
 } ADD_FOLDER, *PADD_FOLDER;
 
@@ -349,6 +350,10 @@ AddFolderInf(
     RMS_TEXT Summary = { 0 };
     RMS_CHOICE Choice = RmsChoiceInstall;
     ULONG Scratch = RMS_FIRST_DRIVER_KEY;
+
+    /* Extensions go in on the second pass, once the drivers they extend are there */
+    if (RmsIsExtensionInf(InfPath) != Folder->Extensions)
+        return;
 
     Options.DryRun = TRUE;
     Options.Summary = &Summary;
@@ -451,6 +456,9 @@ RmsAddDriver(
         Folder.Prompt = Prompt;
         Folder.PromptContext = PromptContext;
         AddDriverFolder(&Folder, DriverPath);
+        Folder.Extensions = TRUE;
+        if (!Folder.Cancelled)
+            AddDriverFolder(&Folder, DriverPath);
 
         RmsInfo(L"%lu driver package(s) added from %s%s", Folder.Added, DriverPath,
                 Folder.Cancelled ? L", stopped on request" : L"");
@@ -537,6 +545,48 @@ RmsAddOverlay(
         free(Folder);
     }
     return Result;
+}
+
+/* The driver key a hardware id was installed with, so extension INFs find the device they extend */
+BOOL
+RmsSetDeviceKey(
+    _In_z_ PCWSTR MountDir,
+    _In_z_ PCWSTR DeviceId,
+    _In_z_ PCWSTR DriverKey)
+{
+    PWSTR Ini = ImagePath(MountDir, RMS_DEVICES_INI);
+    BOOL Ok = WritePrivateProfileStringW(L"DriverKeys", DeviceId, DriverKey, Ini);
+
+    free(Ini);
+    return Ok;
+}
+
+/**
+ * @brief Gets every recorded id=driverkey pair, as a double null terminated list the caller frees.
+ */
+PWSTR
+RmsGetDeviceKeys(
+    _In_z_ PCWSTR MountDir)
+{
+    PWSTR Ini = ImagePath(MountDir, RMS_DEVICES_INI);
+    DWORD Size = 0x8000, Length;
+    PWSTR List = NULL;
+
+    for (;;)
+    {
+        free(List);
+        List = malloc(Size * sizeof(*List));
+        if (!List)
+            break;
+
+        Length = GetPrivateProfileSectionW(L"DriverKeys", List, Size, Ini);
+        if (Length < Size - 2)
+            break;
+        Size *= 2;
+    }
+
+    free(Ini);
+    return List;
 }
 
 BOOL
