@@ -18,6 +18,12 @@ if not "%PART%"=="utility" (
         cmake -G Ninja -S "%ROOT%Drivers" -B "%ROOT%out\drivers" -DCMAKE_BUILD_TYPE=Debug || exit /b 1
     )
     ninja -C "%ROOT%out\drivers" || exit /b 1
+
+    REM The built drivers are the OnePlus 6 part of the board package beside this tree
+    if exist "%ROOT%..\sdm845-Package\" (
+        if exist "%ROOT%..\sdm845-Package\OnePlus6" rmdir /s /q "%ROOT%..\sdm845-Package\OnePlus6"
+        xcopy /e /i /q /y "%ROOT%out\drivers\package" "%ROOT%..\sdm845-Package\OnePlus6" >nul || exit /b 1
+    )
 )
 
 if not "%PART%"=="drivers" (
