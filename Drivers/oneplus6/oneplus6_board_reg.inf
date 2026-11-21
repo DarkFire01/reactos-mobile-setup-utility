@@ -1,0 +1,18 @@
+; OnePlus 6 devices bound to this tree's drivers, and the RIL the modem runs on
+[AddReg]
+; The touch screen, HID over the RMI4 filter
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#QCOM0029","Service",0x00000000,"mshidkmdf"
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#QCOM0029","ClassGUID",0x00000000,"{745a17a0-74d3-11d0-b6fe-00a0c90f57da}"
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#QCOM0029","LowerFilters",0x00010000,"qcomtouch"
+
+; The generic buttons device takes its keys from the Qualcomm PMIC GPIO driver
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#ACPI0011","Service",0x00000000,"qcompwrkey"
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#ACPI0011","ClassGUID",0x00000000,"{4D36E97D-E325-11CE-BFC1-08002BE10318}"
+
+; While QCDX is off the framebuffer runs the panel and this driver sleeps and wakes it
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#QCOM027E","Service",0x00000000,"qcompanel"
+HKLM,"SYSTEM\CurrentControlSet\Control\CriticalDeviceDatabase\ACPI#QCOM027E","ClassGUID",0x00000000,"{4D36E97D-E325-11CE-BFC1-08002BE10318}"
+
+; The modem's RIL
+HKLM,"SYSTEM\CurrentControlSet\Services\RILAdaptation\Parameters\Modems\0","RILPath",0x00020000,"%SystemRoot%\system32\qcril.dll"
+HKLM,"SYSTEM\CurrentControlSet\Services\RILAdaptation\Parameters\Modems\0","RILInitIndex",0x00010001,0x00000000
