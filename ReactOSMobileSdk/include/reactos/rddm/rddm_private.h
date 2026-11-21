@@ -1,0 +1,315 @@
+/*
+ * PROJECT:     ReactOS Display Driver Model
+ * LICENSE:     MIT (https://spdx.org/licenses/MIT)
+ * PURPOSE:     Header file for RDDM Undocumented shared info
+ * COPYRIGHT:   Copyright 2024 Justin Miller <justin.miller@reactos.org>
+ */
+
+#pragma once
+
+/*
+ * The Windows graphics kernel win32k drives: dxgkrnl.sys, watchdog.sys and cdd.dll from Windows 10
+ * 1607, Windows 10 20H1 to 22H2 (19041 to 19045) or Windows 11. The tables win32k shares with them
+ * differ between all three, and 19041 takes some from each of the others.
+ */
+#define DXGKRNL_TARGET_1607     1607
+#define DXGKRNL_TARGET_19041    1904
+#define DXGKRNL_TARGET_WIN11    2600
+
+#ifndef DXGKRNL_TARGET
+#define DXGKRNL_TARGET          DXGKRNL_TARGET_WIN11
+#endif
+
+#if (DXGKRNL_TARGET != DXGKRNL_TARGET_1607) &&     (DXGKRNL_TARGET != DXGKRNL_TARGET_19041) &&     (DXGKRNL_TARGET != DXGKRNL_TARGET_WIN11)
+#error Unknown DXGKRNL_TARGET
+#endif
+
+/*
+ * dxgkrnl exports the D3DKMT entry points and the composition system calls, and looks up the
+ * win32k routines it calls by name in the image win32k names in its interface
+ */
+#define DL_DXGK_EXPORTS_D3DKMT          (DXGKRNL_TARGET >= DXGKRNL_TARGET_19041)
+
+/* ApplyPathsModality takes a display scenario context */
+#define DL_DXGK_APPLY_HAS_SCENARIO      (DXGKRNL_TARGET >= DXGKRNL_TARGET_19041)
+
+/* The modality header ends with a second pointer dxgkrnl frees */
+#define DL_DXGK_MODALITY_TWO_POINTERS   (DXGKRNL_TARGET == DXGKRNL_TARGET_WIN11)
+
+/* SMgrNotifySessionChange takes the session's callout, there is no SMgrRegisterGdiCallout */
+#define DL_SMGR_SESSION_CALLOUT         (DXGKRNL_TARGET >= DXGKRNL_TARGET_19041)
+
+/* The GDI view information ends with a reserved quadword */
+#define DL_GDI_VIEW_HAS_RESERVED        (DXGKRNL_TARGET >= DXGKRNL_TARGET_19041)
+
+/* cdd.dll starts as a driver and hands out DrvEnableDriver through \Device\cdd */
+#define DL_CDD_IS_DRIVER                (DXGKRNL_TARGET == DXGKRNL_TARGET_WIN11)
+
+/* W32KCDD_INTERFACE version 4, with IsRemoteConnection and SetDeviceBitmapAdapterLuid */
+#define DL_CDD_REMOTE_SLOTS             (DXGKRNL_TARGET >= DXGKRNL_TARGET_19041)
+
+/* W32kCddClipRegion gets the destination region by reference */
+#define DL_CDD_CLIP_BY_REFERENCE        (DXGKRNL_TARGET == DXGKRNL_TARGET_WIN11)
+
+/*
+ * The token manager's composition frames carry an id and take a confirm, the tables win32k's
+ * compositor clock calls. Earlier frames have neither, and their tables are laid out differently.
+ */
+#define DL_DXGK_COMPOSITION_FRAMES      (DXGKRNL_TARGET == DXGKRNL_TARGET_WIN11)
+
+/*
+ * Create an IO request to fill out the function pointer list.
+ *
+ * A WDDM miniport's DriverEntry calls DxgkInitialize, which is not an export but an inline stub in
+ * the WDK's dispmprt.h: it opens \Device\DxgKrnl, sends one of these codes, and calls back through
+ * the returned function pointer. WHICH code it sends depends on the WDK the miniport was built
+ * with, not on the WDDM version it implements - so all three must be answered or the driver's
+ * DriverEntry fails outright.
+ *
+ *   0x23003F -> DpiInitialize        (original DxgkInitialize)
+ *   0x230043 -> DpiKmdDodInitialize  (DxgkInitializeDisplayOnlyDriver)
+ *   0x230047 -> DpiInitializeWin8    (DxgkInitialize on Win8+ WDKs)
+ */
+#define IOCTL_VIDEO_DDI_FUNC_REGISTER \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0xF, METHOD_NEITHER, FILE_ANY_ACCESS  )
+
+/* 0x230043, DxgkInitializeDisplayOnlyDriver. */
+#define IOCTL_VIDEO_DDI_FUNC_REGISTER_KMDDOD \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x10, METHOD_NEITHER, FILE_ANY_ACCESS  )
+
+/* 0x230047, DxgkInitialize as emitted by Win8 and later WDKs. */
+#define IOCTL_VIDEO_DDI_FUNC_REGISTER_WIN8 \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x11, METHOD_NEITHER, FILE_ANY_ACCESS  )
+
+/*
+ * win32k passes a PDXGKWIN32K_INTERFACE (rxgkwddminterface.h, Version 22, 944 bytes, on 1607) in
+ * Irp->UserBuffer; dxgkrnl fills its pfnDxgk* slots with the D3DKMT entry points. METHOD_NEITHER:
+ * the buffer is the caller's. 0x23E057, the code win32k sends.
+ */
+#define IOCTL_VIDEO_GIVE_CALLSBACK \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x815, METHOD_NEITHER, FILE_READ_DATA | FILE_WRITE_DATA )
+
+/*
+ * The CDD (cdd.dll) passes a PDXGKCDD_INTERFACE (rxgkcdd.h) in Irp->UserBuffer; dxgkrnl fills the
+ * CDD entry points (DxgkCddQueryInterface) so GDI can drive the desktop primary onto the screen.
+ * 0x23E05B, the code the CDD sends.
+ */
+#define IOCTL_VIDEO_QUERY_CDD_INTERFACE \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x816, METHOD_NEITHER, FILE_READ_DATA | FILE_WRITE_DATA )
+
+/*
+ * ReactOS-specific: win32k passes a REACTOS_WIN32K_DXGKRNL_INTERFACE (rxgkinterface.h) in
+ * Irp->UserBuffer; dxgkrnl fills its RxgkIntPfn* slots with the D3DKMT entry points so ReactOS
+ * win32k's existing NtGdiDdDDI* thunks (gdi/ntgdi/d3dkmt.c) reach DxgKrnl_ms. Not a Windows IOCTL.
+ */
+#define IOCTL_VIDEO_REGISTER_RXGK \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x817, METHOD_NEITHER, FILE_READ_DATA | FILE_WRITE_DATA )
+
+/*
+ * How win32k registers VideoPortCallout with \Device\VideoN and learns the adapter's physical
+ * device object: one VIDEO_WIN32K_CALLBACKS serves as input and output, sent as an internal device
+ * control. dxgkrnl and Windows' videoprt answer only this, not the public
+ * IOCTL_VIDEO_INIT_WIN32K_CALLBACKS. 0x23201F.
+ */
+#define IOCTL_VIDEO_GDI_INIT_WIN32K_CALLBACKS \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x807, METHOD_NEITHER, FILE_ANY_ACCESS )
+
+/*
+ * win32k sends this to \Device\VideoN (INTERNAL_DEVICE_CONTROL, buffer in Irp->UserBuffer).
+ * dxgkrnl answers it for a WDDM adapter, and win32k drives those with the CDD instead of the
+ * display driver named by InstalledDisplayDrivers.
+ */
+#define IOCTL_VIDEO_QUERY_GDI_VIEW_INFORMATION \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x80C, METHOD_NEITHER, FILE_ANY_ACCESS )
+
+typedef struct _DXGK_GDI_VIEW_INFORMATION
+{
+    ULONG Type;             /* 2 on a WDDM adapter */
+    ULONG VidPnSourceId;
+    PVOID Adapter;          /* NULL when nothing WDDM drives this device */
+    LUID AdapterLuid;
+#if DL_GDI_VIEW_HAS_RESERVED
+    ULONG64 Reserved;       /* 19041 and later refuse a buffer without it */
+#endif
+} DXGK_GDI_VIEW_INFORMATION, *PDXGK_GDI_VIEW_INFORMATION;
+
+/*
+ * Claims a display device for the calling session, which is what gives the session its view of
+ * the adapter. Without it the CDD finds no session adapter and cannot create its device
+ * The same buffer carries the answer.
+ */
+#define IOCTL_VIDEO_SET_SESSION_USAGE \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x80A, METHOD_NEITHER, FILE_ANY_ACCESS )
+
+/*
+ * win32k sends this to \Device\cdd when the CDD runs as a driver (INTERNAL_DEVICE_CONTROL).
+ * Irp->UserBuffer receives its DrvEnableDriver.
+ */
+#define IOCTL_VIDEO_QUERY_CDD_ENABLE_DRIVER \
+	CTL_CODE( FILE_DEVICE_VIDEO, 0x801, METHOD_NEITHER, FILE_ANY_ACCESS )
+
+typedef struct _DXGK_SESSION_USAGE
+{
+    ULONG Enable;
+    ULONG Succeeded;
+} DXGK_SESSION_USAGE, *PDXGK_SESSION_USAGE;
+
+/*
+ * watchdog's SMgrGdiCallout does not hand win32k the caller's Param as is. For the length of the
+ * call it points Param at one of these, which carries the original value and the caller's display
+ * scenario context. The callout puts Param back.
+ */
+typedef struct _SMGR_GDI_CALLOUT_PARAM
+{
+    ULONG_PTR Param;
+    PVOID ScenarioContext;
+} SMGR_GDI_CALLOUT_PARAM, *PSMGR_GDI_CALLOUT_PARAM;
+
+/* Exported by watchdog.sys */
+NTSTATUS
+NTAPI
+SMgrGdiCallout(
+    _In_ PVOID Params,
+    _In_ BOOLEAN AllSessions,
+    _In_ BOOLEAN Synchronous,
+    _In_opt_ PVOID Filter,
+    _In_opt_ PVOID FilterContext,
+    _In_opt_ PVOID ScenarioContext);
+
+NTSTATUS
+NTAPI
+SMgrRegisterGdiCallout(
+    _In_ PVOID Callout);
+
+/*
+ * The pointer index of each D3DKMT entry point in the DXGKWIN32K interface. This is how
+ * win32kbase addresses them, one global per slot, rather than by a named field.
+ */
+#define DXGK_SLOT_CheckExclusiveOwnership              67
+#define DXGK_SLOT_CheckMonitorPowerState               66
+#define DXGK_SLOT_CheckOcclusion                       64
+#define DXGK_SLOT_CloseAdapter                         12
+#define DXGK_SLOT_CreateAllocation                     13
+#define DXGK_SLOT_CreateContext                        26
+#define DXGK_SLOT_CreateDevice                         24
+#define DXGK_SLOT_CreateOverlay                        45
+#define DXGK_SLOT_CreateSynchronizationObject          28
+#define DXGK_SLOT_DestroyAllocation                    21
+#define DXGK_SLOT_DestroyContext                       27
+#define DXGK_SLOT_DestroyDevice                        25
+#define DXGK_SLOT_DestroyOverlay                       48
+#define DXGK_SLOT_DestroySynchronizationObject         30
+#define DXGK_SLOT_Escape                               41
+#define DXGK_SLOT_FlipOverlay                          47
+#define DXGK_SLOT_GetContextSchedulingPriority         56
+#define DXGK_SLOT_GetDeviceState                       54
+#define DXGK_SLOT_GetDisplayModeList                   36
+#define DXGK_SLOT_GetMultisampleMethodList             38
+#define DXGK_SLOT_GetPresentHistory                    51
+#define DXGK_SLOT_GetProcessSchedulingPriorityClass    58
+#define DXGK_SLOT_GetRuntimeData                       39
+#define DXGK_SLOT_GetScanLine                          60
+#define DXGK_SLOT_GetSharedPrimaryHandle               44
+#define DXGK_SLOT_InvalidateActiveVidPn                63
+#define DXGK_SLOT_Lock                                 33
+#define DXGK_SLOT_OpenResource                         19
+#define DXGK_SLOT_PollDisplayChildren                  62
+#define DXGK_SLOT_Present                              43
+#define DXGK_SLOT_QueryAdapterInfo                     40
+#define DXGK_SLOT_QueryAllocationResidency             23
+#define DXGK_SLOT_QueryResourceInfo                    14
+#define DXGK_SLOT_QueryStatistics                      42
+#define DXGK_SLOT_ReleaseProcessVidPnSourceOwners      59
+#define DXGK_SLOT_Render                               35
+#define DXGK_SLOT_SetAllocationPriority                22
+#define DXGK_SLOT_SetContextSchedulingPriority         55
+#define DXGK_SLOT_SetDisplayMode                       37
+#define DXGK_SLOT_SetDisplayPrivateDriverFormat        68
+#define DXGK_SLOT_SetGammaRamp                         53
+#define DXGK_SLOT_SetProcessSchedulingPriorityClass    57
+#define DXGK_SLOT_SetQueuedLimit                       61
+#define DXGK_SLOT_SetVidPnSourceOwner                  49
+#define DXGK_SLOT_SignalSynchronizationObject          32
+#define DXGK_SLOT_Unlock                               34
+#define DXGK_SLOT_UpdateOverlay                        46
+#define DXGK_SLOT_WaitForIdle                          65
+#define DXGK_SLOT_WaitForSynchronizationObject         31
+#define DXGK_SLOT_WaitForVerticalBlankEvent            52
+
+#define DXGK_SLOT_CheckSharedResourceAccess            97
+#define DXGK_SLOT_AdjustFullscreenGamma                213
+#define DXGK_SLOT_CheckMultiPlaneOverlaySupport3       226
+#define DXGK_SLOT_PresentMultiPlaneOverlay3            227
+#define DXGK_SLOT_QueryVidPnExclusiveOwnership         206
+#define DXGK_SLOT_SetVidPnSourceHwProtection           217
+#define DXGK_SLOT_OpenAdapter                          7
+#define DXGK_SLOT_ValidateDeviceName                   100
+#define DXGK_SLOT_OpenAdapterFromLuid                  11
+#define DXGK_SLOT_EnumAdapters2                        9
+#define DXGK_SLOT_SetVidPnSourceOwner1                 50
+
+
+/* WDDM 2 and the NT handle based sharing, added for the OpenGL and D3D ICDs */
+#define DXGK_SLOT_ShareObjects                         16
+#define DXGK_SLOT_AcquireKeyedMutex                      72
+#define DXGK_SLOT_AcquireKeyedMutex2                     116
+#define DXGK_SLOT_ChangeVideoMemoryReservation           187
+#define DXGK_SLOT_CheckMultiPlaneOverlaySupport2         196
+#define DXGK_SLOT_ConfigureSharedResource                82
+#define DXGK_SLOT_CreateContextVirtual                   182
+#define DXGK_SLOT_CreateKeyedMutex                       69
+#define DXGK_SLOT_CreateKeyedMutex2                      114
+#define DXGK_SLOT_CreatePagingQueue                      173
+#define DXGK_SLOT_DestroyAllocation2                     184
+#define DXGK_SLOT_DestroyKeyedMutex                      71
+#define DXGK_SLOT_DestroyPagingQueue                     174
+#define DXGK_SLOT_Evict                                  167
+#define DXGK_SLOT_FreeGpuVirtualAddress                  179
+#define DXGK_SLOT_GetOverlayState                        87
+#define DXGK_SLOT_InvalidateCache                        177
+#define DXGK_SLOT_Lock2                                  175
+#define DXGK_SLOT_MakeResident                           166
+#define DXGK_SLOT_MapGpuVirtualAddress                   178
+#define DXGK_SLOT_OpenKeyedMutex                         70
+#define DXGK_SLOT_OpenKeyedMutex2                        115
+#define DXGK_SLOT_OpenNtHandleFromName                   17
+#define DXGK_SLOT_OpenResourceFromNtHandle               20
+#define DXGK_SLOT_OpenSyncObjectFromNtHandle             140
+#define DXGK_SLOT_OpenSyncObjectFromNtHandle2            141
+#define DXGK_SLOT_OpenSyncObjectNtHandleFromName         18
+#define DXGK_SLOT_OpenSynchronizationObject              29
+#define DXGK_SLOT_PresentMultiPlaneOverlay2              197
+#define DXGK_SLOT_QueryResourceInfoFromNtHandle          15
+#define DXGK_SLOT_ReclaimAllocations2                    198
+#define DXGK_SLOT_ReleaseKeyedMutex                      73
+#define DXGK_SLOT_ReleaseKeyedMutex2                     117
+#define DXGK_SLOT_ReserveGpuVirtualAddress               180
+#define DXGK_SLOT_SetContextInProcessSchedulingPriority  138
+#define DXGK_SLOT_SignalSynchronizationObjectFromCpu     170
+#define DXGK_SLOT_SignalSynchronizationObjectFromGpu     172
+#define DXGK_SLOT_SignalSynchronizationObjectFromGpu2    185
+#define DXGK_SLOT_SubmitCommand                          183
+#define DXGK_SLOT_Unlock2                                176
+#define DXGK_SLOT_UpdateGpuVirtualAddress                181
+#define DXGK_SLOT_WaitForSynchronizationObjectFromCpu    169
+#define DXGK_SLOT_WaitForSynchronizationObjectFromGpu    171
+#define DXGK_SLOT_QueryClockCalibration                  201
+#define DXGK_SLOT_MarkDeviceAsError                      218
+#define DXGK_SLOT_CheckVidPnExclusiveOwnership           88
+#define DXGK_SLOT_QueryVideoMemoryInfo                   186
+#define DXGK_SLOT_CacheHybridQueryValue                  146
+#define DXGK_SLOT_GetCachedHybridQueryValue              145
+
+/* Only filled from the Windows 11 dxgkrnl export table, so any free index works */
+#define DXGK_SLOT_EnumAdapters                           228
+#define DXGK_SLOT_CreateHwQueue                          229
+#define DXGK_SLOT_DestroyHwQueue                         230
+#define DXGK_SLOT_SubmitCommandToHwQueue                 231
+#define DXGK_SLOT_SubmitSignalSyncObjectsToHwQueue       232
+#define DXGK_SLOT_SubmitWaitForSyncObjectsToHwQueue      233
+#define DXGK_SLOT_UpdateAllocationProperty               234
+/* Every one of them takes a single pointer, so one shape covers the whole table. */
+typedef NTSTATUS (NTAPI *PFN_DXGK_D3DKMT)(PVOID);
+
+/* Returns the entry point dxgkrnl put in that slot, or NULL when it filled none. */
+PFN_DXGK_D3DKMT NTAPI DxgkGetD3DKMTSlot(_In_ ULONG Slot);
