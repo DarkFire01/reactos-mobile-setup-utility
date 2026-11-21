@@ -1,0 +1,1 @@
+Quick and dirty utility to setup reactos.
