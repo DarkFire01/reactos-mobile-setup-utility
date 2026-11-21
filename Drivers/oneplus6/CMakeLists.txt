@@ -9,3 +9,6 @@ add_registry_inf(qcbattery_reg.inf)
 
 # Quaternary MI2S lines and the AFE ports a voice call uses, read by qcomq6
 add_registry_inf(qcomq6_board_reg.inf)
+
+# T-Mobile modem configuration the OnePlus 6 PDC asks for on network 310240, qcmcfg_reg.inf maps it
+add_cd_file(FILE firmware/OP6TMO.mbn DESTINATION reactos/system32/drivers/MCFG NO_CAB FOR all)
