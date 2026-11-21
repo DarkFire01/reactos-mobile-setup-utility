@@ -285,18 +285,66 @@ InfExpand(
     Out[Used] = UNICODE_NULL;
 }
 
-/* Splits on commas outside quotes, each field trimmed; quotes stay */
+/* Same as InfExpand, into text that grows with what it gets */
 static
 VOID
-InfSplit(
+InfExpandText(
+    _In_ PINF_FILE Inf,
     _In_z_ PCWSTR Text,
-    _Out_ PINF_FIELDS Fields)
+    _Inout_ PRMS_TEXT Out)
+{
+    WCHAR Piece[2] = { 0 };
+
+    while (*Text)
+    {
+        PCWSTR Close;
+
+        if (*Text == L'%' && (Close = wcschr(Text + 1, L'%')) != NULL && Close > Text + 1)
+        {
+            WCHAR Key[256];
+            SIZE_T KeyLength = min((SIZE_T)(Close - Text - 1), ARRAYSIZE(Key) - 1);
+            ULONG Index;
+
+            memcpy(Key, Text + 1, KeyLength * sizeof(WCHAR));
+            Key[KeyLength] = UNICODE_NULL;
+            for (Index = Inf->StringCount; Index-- > 0;)
+            {
+                if (!_wcsicmp(Inf->Strings[Index].Key, Key))
+                    break;
+            }
+
+            if (Index != (ULONG)-1)
+            {
+                RmsTextAppend(Out, Inf->Strings[Index].Value);
+                Text = Close + 1;
+                continue;
+            }
+        }
+
+        Piece[0] = *Text++;
+        RmsTextAppend(Out, Piece);
+    }
+}
+
+/*
+ * Splits on commas outside quotes, each field trimmed; quotes stay. Stops after
+ * Max fields and points Rest at what follows, NULL when the line ended first.
+ */
+static
+VOID
+InfSplitSome(
+    _In_z_ PCWSTR Text,
+    _Out_ PINF_FIELDS Fields,
+    _In_ ULONG Max,
+    _Out_opt_ PCWSTR *Rest)
 {
     SIZE_T Used = 0;
     BOOL Quoted = FALSE;
 
     Fields->Count = 0;
     Fields->Field[0][0] = UNICODE_NULL;
+    if (Rest)
+        *Rest = NULL;
 
     for (;; Text++)
     {
@@ -309,8 +357,14 @@ InfSplit(
             memmove(Fields->Field[Fields->Count], Trimmed, (wcslen(Trimmed) + 1) * sizeof(WCHAR));
             Fields->Count++;
             Used = 0;
-            if (*Text == UNICODE_NULL || Fields->Count == INF_MAX_FIELDS)
+            if (*Text == UNICODE_NULL)
                 return;
+            if (Fields->Count == Max)
+            {
+                if (Rest)
+                    *Rest = Text + 1;
+                return;
+            }
             continue;
         }
 
@@ -319,6 +373,15 @@ InfSplit(
         if (Used + 1 < INF_FIELD_MAX)
             Fields->Field[Fields->Count][Used++] = *Text;
     }
+}
+
+static
+VOID
+InfSplit(
+    _In_z_ PCWSTR Text,
+    _Out_ PINF_FIELDS Fields)
+{
+    InfSplitSome(Text, Fields, INF_MAX_FIELDS, NULL);
 }
 
 /* key = value, the key and the value both trimmed; FALSE without an = */
@@ -484,8 +547,9 @@ RegAddSections(
 {
     WCHAR (*Names)[INF_FIELD_MAX] = malloc(32 * sizeof(*Names));
     INF_FIELDS *Fields = malloc(sizeof(*Fields));
-    WCHAR Expanded[INF_FIELD_MAX * 2], Key[INF_FIELD_MAX * 2], Value[INF_FIELD_MAX];
-    ULONG Count, Index, Line, Rest;
+    WCHAR Key[INF_FIELD_MAX * 2], Value[INF_FIELD_MAX];
+    RMS_TEXT Expanded = { 0 };
+    ULONG Count, Index, Line;
 
     Count = InfDirective(Install, L"AddReg", Names, 32);
     for (Index = 0; Index < Count; Index++)
@@ -494,10 +558,14 @@ RegAddSections(
 
         for (Line = 0; Section && Line < Section->Count; Line++)
         {
-            PCWSTR Root, KeyBase;
+            PCWSTR Root, KeyBase, Data;
 
-            InfExpand(Inf, Section->Lines[Line], Expanded, ARRAYSIZE(Expanded));
-            InfSplit(Expanded, Fields);
+            /* Only root, key, name and flags are parsed, binary and multi string data can run to thousands of fields */
+            RmsTextFree(&Expanded);
+            InfExpandText(Inf, Section->Lines[Line], &Expanded);
+            if (!Expanded.Buffer)
+                continue;
+            InfSplitSome(Expanded.Buffer, Fields, 4, &Data);
             if (Fields->Count < 1)
                 continue;
 
@@ -535,12 +603,18 @@ RegAddSections(
             RmsTextAppendF(Out, L"%s,\"%s\",", Root, Key);
             if (Value[0])
                 RmsTextAppendF(Out, L"\"%s\"", Value);
-            for (Rest = 3; Rest < Fields->Count; Rest++)
-                RmsTextAppendF(Out, L",%s", Fields->Field[Rest]);
+            if (Fields->Count > 3)
+                RmsTextAppendF(Out, L",%s", Fields->Field[3]);
+            if (Data)
+            {
+                RmsTextAppend(Out, L",");
+                RmsTextAppend(Out, Data);
+            }
             RmsTextAppend(Out, L"\r\n");
         }
     }
 
+    RmsTextFree(&Expanded);
     free(Names);
     free(Fields);
 }
