@@ -13,8 +13,11 @@
 #pragma code_seg("PAGE")
 #endif
 
+static ULONG StartStepCount;
+
 /**
- * @brief Keeps the last start step and its status in the service Parameters key, readable without a debugger.
+ * @brief Appends a start step and its status to the service Parameters key and flushes it,
+ *        so the trace survives a hard reset and reads without a debugger.
  */
 static
 VOID
@@ -24,12 +27,48 @@ RecordStartStep(
 {
     PAGED_CODE();
 
-    ULONG Value = (ULONG)Status;
+    UNICODE_STRING Path = RTL_CONSTANT_STRING(L"\\Registry\\Machine\\System\\CurrentControlSet\\Services\\qcomaudio\\Parameters");
+    OBJECT_ATTRIBUTES Attributes;
+    UNICODE_STRING Name;
+    WCHAR NameBuffer[16];
+    WCHAR Text[96];
+    HANDLE Key;
+    ULONG Value;
+    ULONG Length;
+    LONG Shift;
 
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"qcomaudio\\Parameters", L"StartStep", REG_SZ,
-                          (PVOID)Step, (ULONG)((wcslen(Step) + 1) * sizeof(*Step)));
-    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"qcomaudio\\Parameters", L"StartStatus", REG_DWORD,
-                          &Value, sizeof(Value));
+    InitializeObjectAttributes(&Attributes, &Path, OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE, NULL, NULL);
+    if (!NT_SUCCESS(ZwCreateKey(&Key, KEY_SET_VALUE, &Attributes, 0, NULL, REG_OPTION_NON_VOLATILE, NULL)))
+        return;
+
+    RtlCopyMemory(NameBuffer, L"Step", 4 * sizeof(WCHAR));
+    NameBuffer[4] = (WCHAR)(L'0' + (StartStepCount / 10) % 10);
+    NameBuffer[5] = (WCHAR)(L'0' + StartStepCount % 10);
+    NameBuffer[6] = UNICODE_NULL;
+
+    Length = 0;
+    while (Step[Length] && Length < RTL_NUMBER_OF(Text) - 12)
+    {
+        Text[Length] = Step[Length];
+        Length++;
+    }
+    Text[Length++] = L' ';
+    Text[Length++] = L'0';
+    Text[Length++] = L'x';
+    for (Shift = 28; Shift >= 0; Shift -= 4)
+        Text[Length++] = L"0123456789abcdef"[((ULONG)Status >> Shift) & 0xF];
+    Text[Length] = UNICODE_NULL;
+
+    RtlInitUnicodeString(&Name, NameBuffer);
+    ZwSetValueKey(Key, &Name, 0, REG_SZ, Text, (Length + 1) * sizeof(*Text));
+
+    StartStepCount++;
+    Value = StartStepCount;
+    RtlInitUnicodeString(&Name, L"StepCount");
+    ZwSetValueKey(Key, &Name, 0, REG_DWORD, &Value, sizeof(Value));
+
+    ZwFlushKey(Key);
+    ZwClose(Key);
 }
 
 static
@@ -77,6 +116,7 @@ InstallSubdevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PWCHAR Name, REFGUID Por
         }
         if (NT_SUCCESS(Status) && OutPortUnknown)
             Status = Port->QueryInterface(IID_IUnknown, (PVOID *)OutPortUnknown);
+        RecordStartStep(Name[0] == L'W' ? L"Wave installed" : L"Topology installed", Status);
     }
 
     Miniport->Release();
@@ -95,8 +135,10 @@ StartDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PRESOURCELIST ResourceList)
     PUNKNOWN UnknownTopology = NULL;
     NTSTATUS Status;
 
+    StartStepCount = 0;
     RecordStartStep(L"Start", STATUS_PENDING);
     TelephonyInitialize();
+    RecordStartStep(L"Telephony initialized", STATUS_SUCCESS);
 
     Status = InstallSubdevice(DeviceObject, Irp, L"Topology", CLSID_PortTopology,
                               CreateMiniportTopologyQcom, NULL, &UnknownTopology);
