@@ -11575,6 +11575,8 @@ _KeQueryTickCount(
 
 #define KI_USER_SHARED_DATA     0xFFFFF78000000000ULL
 #define SharedUserData          ((KUSER_SHARED_DATA * const)KI_USER_SHARED_DATA)
+#define SharedInterruptTime     (KI_USER_SHARED_DATA + 0x8)
+#define SharedSystemTime        (KI_USER_SHARED_DATA + 0x14)
 #define SharedTickCount         (KI_USER_SHARED_DATA + 0x320)
 
 #define PAGE_SIZE               0x1000
@@ -11591,6 +11593,12 @@ _KeQueryTickCount(
 #define EXCEPTION_READ_FAULT    0
 #define EXCEPTION_WRITE_FAULT   1
 #define EXCEPTION_EXECUTE_FAULT 8
+
+#define KeQueryInterruptTime() \
+    (*(volatile ULONG64*)SharedInterruptTime)
+
+#define KeQuerySystemTime(CurrentCount) \
+    *(ULONG64*)(CurrentCount) = *(volatile ULONG64*)SharedSystemTime
 
 #define KeQueryTickCount(CurrentCount) \
     *(ULONG64*)(CurrentCount) = *(volatile ULONG64*)SharedTickCount
@@ -11790,7 +11798,7 @@ NTAPI
 KeQueryActiveProcessors(VOID);
 #endif /* defined(SINGLE_GROUP_LEGACY_API) */
 
-#if !defined(_M_AMD64)
+#if !defined(_M_AMD64) && !defined(_M_ARM64)
 NTKERNELAPI
 ULONGLONG
 NTAPI
@@ -11801,7 +11809,7 @@ VOID
 NTAPI
 KeQuerySystemTime(
   _Out_ PLARGE_INTEGER CurrentTime);
-#endif /* !_M_AMD64 */
+#endif /* !_M_AMD64 && !_M_ARM64 */
 
 #if (NTDDI_VERSION >= NTDDI_WIN8)
 _IRQL_requires_max_(HIGH_LEVEL)
