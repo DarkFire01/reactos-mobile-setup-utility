@@ -13,6 +13,25 @@
 #pragma code_seg("PAGE")
 #endif
 
+/**
+ * @brief Keeps the last start step and its status in the service Parameters key, readable without a debugger.
+ */
+static
+VOID
+RecordStartStep(
+    _In_ PCWSTR Step,
+    _In_ NTSTATUS Status)
+{
+    PAGED_CODE();
+
+    ULONG Value = (ULONG)Status;
+
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"qcomaudio\\Parameters", L"StartStep", REG_SZ,
+                          (PVOID)Step, (ULONG)((wcslen(Step) + 1) * sizeof(*Step)));
+    RtlWriteRegistryValue(RTL_REGISTRY_SERVICES, L"qcomaudio\\Parameters", L"StartStatus", REG_DWORD,
+                          &Value, sizeof(Value));
+}
+
 static
 NTSTATUS
 InstallSubdevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PWCHAR Name, REFGUID PortClassId,
@@ -29,6 +48,7 @@ InstallSubdevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PWCHAR Name, REFGUID Por
     if (!NT_SUCCESS(Status))
     {
         QCA_LOG("%S: PcNewPort failed 0x%08lx\n", Name, Status);
+        RecordStartStep(Name[0] == L'W' ? L"Wave PcNewPort" : L"Topology PcNewPort", Status);
         return Status;
     }
 
@@ -36,18 +56,25 @@ InstallSubdevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PWCHAR Name, REFGUID Por
     if (!NT_SUCCESS(Status))
     {
         QCA_LOG("%S: miniport create failed 0x%08lx\n", Name, Status);
+        RecordStartStep(Name[0] == L'W' ? L"Wave miniport create" : L"Topology miniport create", Status);
         Port->Release();
         return Status;
     }
 
     Status = Port->Init(DeviceObject, Irp, Miniport, NULL, ResourceList);
     if (!NT_SUCCESS(Status))
+    {
         QCA_LOG("%S: port init failed 0x%08lx\n", Name, Status);
+        RecordStartStep(Name[0] == L'W' ? L"Wave port init" : L"Topology port init", Status);
+    }
     if (NT_SUCCESS(Status))
     {
         Status = PcRegisterSubdevice(DeviceObject, Name, Port);
         if (!NT_SUCCESS(Status))
+        {
             QCA_LOG("%S: PcRegisterSubdevice failed 0x%08lx\n", Name, Status);
+            RecordStartStep(Name[0] == L'W' ? L"Wave PcRegisterSubdevice" : L"Topology PcRegisterSubdevice", Status);
+        }
         if (NT_SUCCESS(Status) && OutPortUnknown)
             Status = Port->QueryInterface(IID_IUnknown, (PVOID *)OutPortUnknown);
     }
@@ -68,6 +95,7 @@ StartDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PRESOURCELIST ResourceList)
     PUNKNOWN UnknownTopology = NULL;
     NTSTATUS Status;
 
+    RecordStartStep(L"Start", STATUS_PENDING);
     TelephonyInitialize();
 
     Status = InstallSubdevice(DeviceObject, Irp, L"Topology", CLSID_PortTopology,
@@ -86,6 +114,7 @@ StartDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PRESOURCELIST ResourceList)
     Status = PcRegisterPhysicalConnection(DeviceObject, UnknownWave, PIN_WAVE_RENDER_SOURCE,
                                           UnknownTopology, PIN_TOPO_WAVE_IN);
     QCA_LOG("start: wave and topology connected 0x%08lx\n", Status);
+    RecordStartStep(L"Physical connection", Status);
 
     UnknownTopology->Release();
     UnknownWave->Release();
