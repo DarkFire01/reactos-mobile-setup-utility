@@ -22,8 +22,15 @@ add_executable(rmsetupgui WIN32 gui.c rmsetupgui.rc)
 target_link_libraries(rmsetupgui rmscore comctl32 comdlg32 shell32 ole32)
 target_link_options(rmsetupgui PRIVATE /ENTRY:wWinMainCRTStartup /MANIFEST:NO)
 
-# The host tools the commit step runs
-file(GLOB _tools "${CMAKE_CURRENT_SOURCE_DIR}/tools/*.exe")
+# The host tools the commit step runs, built for the same machine as the utility
+if(CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "^(ARM64|arm64)$")
+    set(_tools_arch arm64)
+elseif(CMAKE_C_COMPILER_ARCHITECTURE_ID MATCHES "^(x64|X64|AMD64|x86_64)$")
+    set(_tools_arch x64)
+else()
+    message(FATAL_ERROR "No host tools for ${CMAKE_C_COMPILER_ARCHITECTURE_ID}, add them under tools/")
+endif()
+file(GLOB _tools "${CMAKE_CURRENT_SOURCE_DIR}/tools/${_tools_arch}/*.exe")
 foreach(_target rmsetup rmsetupgui)
     add_custom_command(TARGET ${_target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${_target}>/tools"

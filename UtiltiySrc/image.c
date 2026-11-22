@@ -61,6 +61,18 @@ ImageSet(
     free(Ini);
 }
 
+/**
+ * @brief Gets the setup folder name of the mounted image, such as arm64 or amd64, empty when unknown.
+ */
+VOID
+RmsGetImageArch(
+    _In_z_ PCWSTR MountDir,
+    _Out_writes_z_(Size) PWSTR Arch,
+    _In_ DWORD Size)
+{
+    ImageGet(MountDir, L"Arch", Arch, Size);
+}
+
 /* The setup tree is the root folder that holds txtsetup.sif */
 static
 BOOL

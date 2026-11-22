@@ -133,6 +133,7 @@ int RmsGetDrivers(_In_z_ PCWSTR MountDir);
 int RmsListServices(_In_z_ PCWSTR MountDir, _In_ RMS_SERVICE_ROUTINE Routine, _In_opt_ PVOID Context);
 int RmsCommitImage(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR ImageFile);
 BOOL RmsIsMounted(_In_z_ PCWSTR MountDir);
+VOID RmsGetImageArch(_In_z_ PCWSTR MountDir, _Out_writes_z_(Size) PWSTR Arch, _In_ DWORD Size);
 BOOL RmsStageSystemFile(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR Source, _In_z_ PCWSTR RelativeDir, _In_opt_z_ PCWSTR TargetName);
 BOOL RmsSetDeviceKey(_In_z_ PCWSTR MountDir, _In_z_ PCWSTR DeviceId, _In_z_ PCWSTR DriverKey);
 PWSTR RmsGetDeviceKeys(_In_z_ PCWSTR MountDir);

@@ -27,8 +27,8 @@
 /* Class of extension INFs */
 #define RMS_EXTENSION_CLASS L"{E2F84CE7-8EFA-411C-AA69-97454CA4CB57}"
 
-/* Install sections are looked up with these decorations, most specific first */
-static PCWSTR InfDecorations[] = { L".ntarm64", L".nt", L"" };
+/* INF platform name of the image being serviced (arm64, amd64 or x86), picked per INF */
+static WCHAR InfPlatform[16] = L"arm64";
 
 typedef struct _INF_SECTION
 {
@@ -476,14 +476,19 @@ InfDecorated(
     _In_z_ PCWSTR Base,
     _In_opt_z_ PCWSTR Suffix)
 {
-    WCHAR Name[512];
+    WCHAR Name[512], Decorations[3][24];
     ULONG Index;
 
-    for (Index = 0; Index < ARRAYSIZE(InfDecorations); Index++)
+    /* Most specific first */
+    swprintf_s(Decorations[0], ARRAYSIZE(Decorations[0]), L".nt%s", InfPlatform);
+    wcscpy_s(Decorations[1], ARRAYSIZE(Decorations[1]), L".nt");
+    Decorations[2][0] = UNICODE_NULL;
+
+    for (Index = 0; Index < ARRAYSIZE(Decorations); Index++)
     {
         PINF_SECTION Section;
 
-        swprintf_s(Name, ARRAYSIZE(Name), L"%s%s%s", Base, InfDecorations[Index], Suffix ? Suffix : L"");
+        swprintf_s(Name, ARRAYSIZE(Name), L"%s%s%s", Base, Decorations[Index], Suffix ? Suffix : L"");
         Section = InfSection(Inf, Name);
         if (Section)
             return Section;
@@ -634,7 +639,7 @@ ParseNumber(
     return (End == Text) ? Default : Value;
 }
 
-/* A section with its .arm64 platform form first, as SourceDisksFiles and SourceDisksNames come */
+/* A section with its platform form first, as SourceDisksFiles and SourceDisksNames come */
 static
 PINF_SECTION
 InfPlatformSection(
@@ -644,7 +649,7 @@ InfPlatformSection(
     WCHAR Name[128];
     PINF_SECTION Section;
 
-    swprintf_s(Name, ARRAYSIZE(Name), L"%s.arm64", Base);
+    swprintf_s(Name, ARRAYSIZE(Name), L"%s.%s", Base, InfPlatform);
     Section = InfSection(Inf, Name);
     return Section ? Section : InfSection(Inf, Base);
 }
@@ -958,7 +963,7 @@ DeviceWanted(
     return !DeviceCount || WantedDevice(Id, Devices, DeviceCount) != NULL;
 }
 
-/* The models sections the manufacturer section names, decorated for ARM64 where it says so */
+/* The models sections the manufacturer section names, decorated for the image's platform where it says so */
 static
 ULONG
 ModelSections(
@@ -968,8 +973,12 @@ ModelSections(
 {
     PINF_SECTION Manufacturer = InfSection(Inf, L"Manufacturer");
     INF_FIELDS *Fields = malloc(sizeof(*Fields));
-    WCHAR Key[256], Value[INF_FIELD_MAX], Name[512];
+    WCHAR Key[256], Value[INF_FIELD_MAX], Name[512], Decoration[24];
     ULONG Count = 0, Line, Field;
+    SIZE_T DecorationLength;
+
+    swprintf_s(Decoration, ARRAYSIZE(Decoration), L"NT%s", InfPlatform);
+    DecorationLength = wcslen(Decoration);
 
     for (Line = 0; Manufacturer && Line < Manufacturer->Count && Count < Max; Line++)
     {
@@ -983,7 +992,7 @@ ModelSections(
 
         for (Field = 1; Field < Fields->Count && !Section; Field++)
         {
-            if (!_wcsnicmp(Fields->Field[Field], L"NTarm64", 7))
+            if (!_wcsnicmp(Fields->Field[Field], Decoration, DecorationLength))
             {
                 swprintf_s(Name, ARRAYSIZE(Name), L"%s.%s", Fields->Field[0], Fields->Field[Field]);
                 Section = InfSection(Inf, Name);
@@ -1164,6 +1173,24 @@ RmsIsExtensionInf(
     return IsExtension;
 }
 
+/* Picks the INF platform from the image's setup folder, an unknown one keeps arm64 */
+static
+VOID
+InfSelectPlatform(
+    _In_z_ PCWSTR MountDir)
+{
+    WCHAR Arch[64];
+
+    RmsGetImageArch(MountDir, Arch, ARRAYSIZE(Arch));
+
+    if (!_wcsicmp(Arch, L"amd64") || !_wcsicmp(Arch, L"x64"))
+        wcscpy_s(InfPlatform, ARRAYSIZE(InfPlatform), L"amd64");
+    else if (!_wcsicmp(Arch, L"i386") || !_wcsicmp(Arch, L"x86"))
+        wcscpy_s(InfPlatform, ARRAYSIZE(InfPlatform), L"x86");
+    else
+        wcscpy_s(InfPlatform, ARRAYSIZE(InfPlatform), L"arm64");
+}
+
 /**
  * @brief Installs one Windows driver INF into the mounted image.
  *
@@ -1192,6 +1219,8 @@ RmsTranslateDriver(
     ULONG ModelCount, Model, Line, Id, Instance, Installed = 0;
     PWCHAR Slash;
     BOOL Ok = TRUE, IsExtension;
+
+    InfSelectPlatform(MountDir);
 
     if (!Inf || !Fields || !InfLoad(InfPath, Inf))
     {
