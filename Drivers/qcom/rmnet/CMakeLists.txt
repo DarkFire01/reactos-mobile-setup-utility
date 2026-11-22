@@ -10,7 +10,7 @@ list(APPEND SOURCE
 
 add_library(rmnet MODULE ${SOURCE} rmnet.rc)
 set_module_type(rmnet kernelmodedriver)
-target_compile_definitions(rmnet PRIVATE NDIS_MINIPORT_DRIVER=1 NDIS620_MINIPORT=1)
+target_compile_definitions(rmnet PRIVATE NDIS_MINIPORT_DRIVER=1 NDIS630_MINIPORT=1)
 add_importlibs(rmnet ndis ntoskrnl hal)
 add_pch(rmnet rmnet.h SOURCE)
 add_cd_file(TARGET rmnet DESTINATION reactos/system32/drivers FOR all)

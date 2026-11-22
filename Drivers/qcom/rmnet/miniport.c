@@ -612,8 +612,9 @@ DriverEntry(
     Characteristics.Header.Type = NDIS_OBJECT_TYPE_MINIPORT_DRIVER_CHARACTERISTICS;
     Characteristics.Header.Revision = NDIS_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_2;
     Characteristics.Header.Size = NDIS_SIZEOF_MINIPORT_DRIVER_CHARACTERISTICS_REVISION_2;
+    /* NDIS on Windows for ARM refuses miniports older than 6.30 with NDIS_STATUS_BAD_VERSION */
     Characteristics.MajorNdisVersion = 6;
-    Characteristics.MinorNdisVersion = 20;
+    Characteristics.MinorNdisVersion = 30;
     Characteristics.MajorDriverVersion = 1;
     Characteristics.MinorDriverVersion = 0;
     Characteristics.InitializeHandlerEx = RmNetInitialize;
