@@ -13,6 +13,7 @@
  */
 
 #include "rmsetup.h"
+#include <setupapi.h>
 
 #define INF_MAX_SECTIONS    4096
 #define INF_MAX_STRINGS     2048
@@ -668,6 +669,66 @@ InfPlatformSection(
     return Section ? Section : InfSection(Inf, Base);
 }
 
+/* The name a package ships a compressed file under, as Setup looks for it: a.dll becomes a.dl_ */
+static
+BOOL
+CompressedSourcePath(
+    _In_z_ PCWSTR Source,
+    _Out_writes_z_(Size) PWSTR Packed,
+    _In_ SIZE_T Size)
+{
+    PWCHAR Name, Dot;
+    SIZE_T Length;
+
+    wcscpy_s(Packed, Size, Source);
+    Name = wcsrchr(Packed, L'\\');
+    Name = Name ? Name + 1 : Packed;
+    Dot = wcsrchr(Name, L'.');
+    Length = wcslen(Packed);
+
+    if (Dot != NULL && wcslen(Dot + 1) >= 3)
+        Packed[Length - 1] = L'_';
+    else if (Dot != NULL)
+        wcscat_s(Packed, Size, L"_");
+    else
+        wcscat_s(Packed, Size, L"._");
+
+    return RmsFileExists(Packed);
+}
+
+/* Expands a compressed package file and stages it under its real name */
+static
+BOOL
+StageCompressedFile(
+    _In_z_ PCWSTR MountDir,
+    _In_z_ PCWSTR Packed,
+    _In_z_ PCWSTR RelativeDir,
+    _In_z_ PCWSTR Target)
+{
+    WCHAR TempDir[MAX_PATH], TempFile[MAX_PATH];
+    DWORD Error;
+    BOOL Ok;
+
+    if (!GetTempPathW(ARRAYSIZE(TempDir), TempDir) ||
+        !GetTempFileNameW(TempDir, L"rms", 0, TempFile))
+    {
+        RmsError(L"no temporary file to expand %s into", Packed);
+        return FALSE;
+    }
+
+    Error = SetupDecompressOrCopyFileW(Packed, TempFile, NULL);
+    if (Error != ERROR_SUCCESS)
+    {
+        RmsError(L"expanding %s failed (error %lu)", Packed, Error);
+        DeleteFileW(TempFile);
+        return FALSE;
+    }
+
+    Ok = RmsStageSystemFile(MountDir, TempFile, RelativeDir, Target);
+    DeleteFileW(TempFile);
+    return Ok;
+}
+
 /* Where a file the INF copies sits: SourceDisksFiles gives its disk and folder, SourceDisksNames the disk's */
 static
 VOID
@@ -748,9 +809,10 @@ StageFiles(
 
         for (Line = 0; Line < Files; Line++)
         {
-            WCHAR Source[MAX_PATH * 2];
+            WCHAR Source[MAX_PATH * 2], PackedSource[MAX_PATH * 2];
             PCWSTR Relative, Target, SourceName;
             ULONG DirId;
+            BOOL Packed;
 
             /* A copy line is the name it gets, then the name it has in the package when they differ */
             if (Section)
@@ -781,13 +843,18 @@ StageFiles(
             Relative = (DirId == 11) ? L"system32" : (DirId == 10) ? L"" : L"system32\\drivers";
 
             SourcePath(Inf, InfDir, SourceName, Source, ARRAYSIZE(Source));
+            Packed = !RmsFileExists(Source) && CompressedSourcePath(Source, PackedSource, ARRAYSIZE(PackedSource));
             if (DryRun)
             {
-                if (!RmsFileExists(Source))
+                if (!Packed && !RmsFileExists(Source))
                 {
                     RmsError(L"%s is missing", Source);
                     Ok = FALSE;
                 }
+            }
+            else if (Packed)
+            {
+                Ok = StageCompressedFile(MountDir, PackedSource, Relative, Target) && Ok;
             }
             else
             {

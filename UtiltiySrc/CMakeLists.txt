@@ -14,6 +14,7 @@ add_library(rmscore STATIC
     driver.c
     image.c
     rmsetup.h)
+target_link_libraries(rmscore setupapi)
 
 add_executable(rmsetup cli.c)
 target_link_libraries(rmsetup rmscore)
