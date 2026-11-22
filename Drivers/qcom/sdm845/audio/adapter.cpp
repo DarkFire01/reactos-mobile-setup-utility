@@ -7,6 +7,8 @@
 
 #include "precomp.h"
 
+#define QCA_LOG(...) DbgPrint("[qcomaudio] " __VA_ARGS__)
+
 #ifdef _MSC_VER
 #pragma code_seg("PAGE")
 #endif
@@ -25,19 +27,27 @@ InstallSubdevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PWCHAR Name, REFGUID Por
 
     Status = PcNewPort(&Port, PortClassId);
     if (!NT_SUCCESS(Status))
+    {
+        QCA_LOG("%S: PcNewPort failed 0x%08lx\n", Name, Status);
         return Status;
+    }
 
     Status = MiniportCreate((PUNKNOWN *)&Miniport, PortClassId, NULL, NonPagedPool);
     if (!NT_SUCCESS(Status))
     {
+        QCA_LOG("%S: miniport create failed 0x%08lx\n", Name, Status);
         Port->Release();
         return Status;
     }
 
     Status = Port->Init(DeviceObject, Irp, Miniport, NULL, ResourceList);
+    if (!NT_SUCCESS(Status))
+        QCA_LOG("%S: port init failed 0x%08lx\n", Name, Status);
     if (NT_SUCCESS(Status))
     {
         Status = PcRegisterSubdevice(DeviceObject, Name, Port);
+        if (!NT_SUCCESS(Status))
+            QCA_LOG("%S: PcRegisterSubdevice failed 0x%08lx\n", Name, Status);
         if (NT_SUCCESS(Status) && OutPortUnknown)
             Status = Port->QueryInterface(IID_IUnknown, (PVOID *)OutPortUnknown);
     }
@@ -75,6 +85,7 @@ StartDevice(PDEVICE_OBJECT DeviceObject, PIRP Irp, PRESOURCELIST ResourceList)
 
     Status = PcRegisterPhysicalConnection(DeviceObject, UnknownWave, PIN_WAVE_RENDER_SOURCE,
                                           UnknownTopology, PIN_TOPO_WAVE_IN);
+    QCA_LOG("start: wave and topology connected 0x%08lx\n", Status);
 
     UnknownTopology->Release();
     UnknownWave->Release();
