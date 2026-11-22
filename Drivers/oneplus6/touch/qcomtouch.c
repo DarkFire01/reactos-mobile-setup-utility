@@ -118,11 +118,8 @@ QcTouchEvtPrepareHardware(
             return Status;
     }
 
-    /* The sensor rail is a PEP vote tied to D-states, which needs a PoFx registration */
-    Status = PoFxEnableDStateReporting(WdfDeviceWdmGetPhysicalDevice(WdfDevice));
-    if (!NT_SUCCESS(Status))
-        DPRINT1("D-state reporting not enabled, 0x%08lx\n", Status);
-
+    /* The sensor rail is a PEP vote tied to D-states. HIDCLASS registers the stack with
+       PoFx, a second registration from this filter bugchecks Windows. */
     return STATUS_SUCCESS;
 }
 
