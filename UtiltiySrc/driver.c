@@ -14,7 +14,7 @@
 
 #include "rmsetup.h"
 
-#define INF_MAX_SECTIONS    512
+#define INF_MAX_SECTIONS    4096
 #define INF_MAX_STRINGS     2048
 #define INF_MAX_FIELDS      32
 #define INF_FIELD_MAX       1024
@@ -174,8 +174,22 @@ InfLoad(
         {
             PWCHAR Close = wcschr(Trimmed, L']');
 
-            if (!Close || Inf->SectionCount == INF_MAX_SECTIONS)
+            if (!Close)
                 continue;
+
+            /* Dropping sections would install a partial driver, so refuse the INF instead */
+            if (Inf->SectionCount == INF_MAX_SECTIONS)
+            {
+                ULONG Index;
+
+                RmsError(L"%s has more than %u sections", Path, INF_MAX_SECTIONS);
+                for (Index = 0; Index < Inf->SectionCount; Index++)
+                    free(Inf->Sections[Index].Lines);
+                free(Inf->Text);
+                Inf->Text = NULL;
+                Inf->SectionCount = 0;
+                return FALSE;
+            }
             *Close = UNICODE_NULL;
             Current = &Inf->Sections[Inf->SectionCount++];
             Current->Name = InfTrim(Trimmed + 1);
