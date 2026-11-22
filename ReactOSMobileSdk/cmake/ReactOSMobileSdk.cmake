@@ -114,7 +114,7 @@ function(set_module_type _module _type)
 
         if(_type STREQUAL kmdfdriver)
             set(_entry FxDriverEntry)
-            target_include_directories(${_module} PRIVATE ${RMSDK_INCLUDE}/wdf/kmdf/1.33)
+            target_include_directories(${_module} PRIVATE ${RMSDK_INCLUDE}/wdf/kmdf/1.31)
             target_compile_definitions(${_module} PRIVATE WDF_DEVICE_NO_WDMSEC_H)
             target_link_libraries(${_module} wdfdriverentry)
             add_importlibs(${_module} wdfldr)

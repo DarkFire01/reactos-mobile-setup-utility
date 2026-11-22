@@ -63,7 +63,7 @@ WDF_EXTERN_C_START
 // multiple WDF versions are being included. Ensure WDF version of all input
 // binaries match to resolve.
 //
-#define WdfFunctions WdfFunctions_01033
+#define WdfFunctions WdfFunctions_01031
 
 typedef VOID (NTAPI *WDFFUNC) (VOID);
 extern const WDFFUNC *WdfFunctions;

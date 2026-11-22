@@ -1952,22 +1952,6 @@ typedef struct _WDF_POWER_FRAMEWORK_SETTINGS {
     //
     PVOID PoFxDeviceContext;
 
-    //
-    // This is PO_FX_DEVICE_V3.Flags. It contains 0 or more flags that can be
-    // OR-ed together and passed to PoFxRegisterDevice.
-    //
-    // Valid flags include (but not limited to):
-    //
-    //   PO_FX_DEVICE_FLAG_DFX_CHILDREN_OPTIONAL
-    //   PO_FX_DEVICE_FLAG_DISABLE_FAST_RESUME
-    //
-    ULONGLONG PoFxDeviceFlags;
-
-    //
-    // Whether the device enables Directed Power Management Framework (DFx).
-    //
-    WDF_TRI_STATE DirectedPoFxEnabled;
-
 } WDF_POWER_FRAMEWORK_SETTINGS, *PWDF_POWER_FRAMEWORK_SETTINGS;
 
 FORCEINLINE
@@ -1979,7 +1963,6 @@ WDF_POWER_FRAMEWORK_SETTINGS_INIT(
     RtlZeroMemory(PowerFrameworkSettings,
                   sizeof(WDF_POWER_FRAMEWORK_SETTINGS));
     PowerFrameworkSettings->Size = WDF_STRUCTURE_SIZE(WDF_POWER_FRAMEWORK_SETTINGS);
-    PowerFrameworkSettings->DirectedPoFxEnabled = WdfUseDefault;
 }
 
 
