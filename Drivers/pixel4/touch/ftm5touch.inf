@@ -1,0 +1,68 @@
+; FTM5TOUCH.INF
+
+; Installation file for the ST FTM5 touch screen of the Pixel 4
+
+[Version]
+Signature = "$Windows NT$"
+Class = HIDClass
+ClassGuid = {745a17a0-74d3-11d0-b6fe-00a0c90f57da}
+Provider = %ReactOS%
+DriverVer = 11/13/2026,2.00
+
+[SourceDisksNames]
+1 = %DiskId1%,,,""
+
+[SourceDisksFiles]
+ftm5touch.sys = 1,,
+mshidkmdf.sys = 1,,
+
+[DestinationDirs]
+DefaultDestDir = 12
+
+[ControlFlags]
+ExcludeFromSelect = *
+
+[Manufacturer]
+%Mfg% = Mfg
+
+[Mfg]
+%FTM5TOUCH.DeviceDesc% = FTM5TOUCH_Device, ACPI\FTM50001
+
+[FTM5TOUCH_Device.NT]
+CopyFiles = FTM5TOUCH_CopyFiles
+
+[FTM5TOUCH_CopyFiles]
+ftm5touch.sys
+mshidkmdf.sys
+
+[FTM5TOUCH_Device.NT.HW]
+AddReg = FTM5TOUCH_Filter_AddReg
+
+[FTM5TOUCH_Filter_AddReg]
+HKR,,"LowerFilters",0x00010000,"ftm5touch"
+
+[FTM5TOUCH_Device.NT.Services]
+AddService = mshidkmdf, 0x00000002, MSHIDKMDF_Service
+AddService = ftm5touch, , FTM5TOUCH_Service
+
+[MSHIDKMDF_Service]
+DisplayName    = %MSHIDKMDF.ServiceDesc%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %12%\mshidkmdf.sys
+
+[FTM5TOUCH_Service]
+DisplayName    = %FTM5TOUCH.ServiceDesc%
+ServiceType    = 1
+StartType      = 3
+ErrorControl   = 1
+ServiceBinary  = %12%\ftm5touch.sys
+
+[Strings]
+ReactOS = "ReactOS Project"
+Mfg = "STMicroelectronics"
+DiskId1 = "ReactOS Installation Disk"
+FTM5TOUCH.DeviceDesc = "ST FTM5 Touch Screen"
+FTM5TOUCH.ServiceDesc = "ST FTM5 HID Touch Filter"
+MSHIDKMDF.ServiceDesc = "Pass-through HID to KMDF Filter Driver"

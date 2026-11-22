@@ -30,5 +30,8 @@ add_subdirectory(qcom/qcril)
 # The rest of the OnePlus 6 board
 add_subdirectory(oneplus6)
 
+# Pixel 4 board drivers
+add_subdirectory(pixel4)
+
 # Registration of the Windows SDM850 drivers, last so the local overrides win
 add_subdirectory(qcom/sdm845/windows)

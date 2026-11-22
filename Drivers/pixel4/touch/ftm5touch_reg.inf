@@ -1,0 +1,7 @@
+; ST FTM5 HID touch filter, below mshidkmdf
+[AddReg]
+HKLM,"SYSTEM\CurrentControlSet\Services\ftm5touch","ErrorControl",0x00010001,0x00000001
+HKLM,"SYSTEM\CurrentControlSet\Services\ftm5touch","Group",0x00000000,"PNP Filter"
+HKLM,"SYSTEM\CurrentControlSet\Services\ftm5touch","ImagePath",0x00020000,"system32\drivers\ftm5touch.sys"
+HKLM,"SYSTEM\CurrentControlSet\Services\ftm5touch","Start",0x00010001,0x00000003
+HKLM,"SYSTEM\CurrentControlSet\Services\ftm5touch","Type",0x00010001,0x00000001
